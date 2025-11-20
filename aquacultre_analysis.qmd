@@ -1,0 +1,186 @@
+---
+title: "Aquaculture"
+author: "Jaslyn Miura"
+format: html
+---
+
+Asian Tiger Shrimp
+
+Environment: milieu / climate zone / depth range / distribution range
+Benthic; brackish; depth range 0 - 72 m (Ref. 8).  Subtropical, preferred 26°C (Ref. 107945); 35°N - 20°S (Ref. 356)
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(tmap)
+```
+
+
+```{r}
+west_coast <- st_read(here::here('data', 'wc_regions_clean.shp'))
+depth <- rast(here::here('data', 'depth.tif'))
+
+sst_08 <- rast(here::here('data', 'average_annual_sst_2008.tif'))
+sst_09 <- rast(here::here('data', 'average_annual_sst_2009.tif'))
+sst_10 <- rast(here::here('data', 'average_annual_sst_2010.tif'))
+sst_11 <- rast(here::here('data', 'average_annual_sst_2011.tif'))
+sst_12 <- rast(here::here('data', 'average_annual_sst_2012.tif'))
+
+sst <- c(sst_08, sst_09, sst_10, sst_11, sst_12)
+```
+```{r}
+# find the mean SST from 2008-2012 (e.g. create single raster of average SST)
+avg_sst_rast <-mean(sst)
+```
+
+```{r}
+# convert average SST from Kelvin to Celsius, hint: subtract by 273.15
+avg_sst_rast <- avg_sst_rast - 273.15
+```
+
+```{r}
+# check if coordinate reference systems match
+if(crs(avg_sst_rast) == crs(depth)) {
+  print("Coordinate reference systems match")
+} else{
+  warning("Updating coordinate reference systems to match")
+  # transform data to match
+  avg_sst_rast <- project(avg_sst_rast, depth)
+}
+
+```
+
+
+```{r}
+# crop depth raster to match the extent of the SST raster
+depth_crop <- terra::crop(depth, avg_sst_rast)
+```
+
+```{r}
+#the resolutions of the SST and depth data do not match
+# resample the depth data to match the resolution of the SST data using the nearest neighbor approach
+
+depth_resample <- resample(depth_crop, y = avg_sst_rast, method = "near")
+
+```
+
+```{r}
+# BEFORE AND AFTER MAPS LOOK THE SAME BUT RUN A CHECK TO MAKE SURE THE RESOLUTIONS ARE THE SAME.
+# map1 <- tm_shape(depth_crop) +
+#   tm_raster()
+# 
+# map2 <- tm_shape(depth_resample) +
+#   tm_raster()
+# 
+# tmap_arrange(map1, map2, nrow = 1)
+```
+
+```{r}
+# check that the depth and SST match in resolution, extent, and coordinate reference system
+# hint: can the rasters be stacked?
+
+if(crs(avg_sst_rast) == crs(depth_resample)) {
+  print("Coordinate reference systems match")
+} else{
+  warning("Updating coordinate reference systems to match")
+  # transform data to match
+  avg_sst_rast <- project(avg_sst_rast, depth_resample)
+}
+
+if(resolution(avg_sst_rast) == resolution(depth_resample)) {
+  print("Resolutions match!")
+} else{
+  print("Resolutions do not match!")
+}
+
+if(ext(avg_sst_rast) == ext(depth_resample)) {
+  print("Extents match!")
+} else{
+  print("Extents do not match!")
+}
+```
+
+
+## Find Suitable Locations
+```{r}
+# reclassify SST and depth data into locations that are suitable for oysters
+# hint: set suitable values to 1 and unsuitable values to 0
+
+rcl_temp <- matrix(c(-Inf, 11, 0,
+                11, 30, 1,
+                30, Inf, 0),
+              ncol = 3, byrow = TRUE)
+
+reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
+
+values(reclassified_sst) <- as.factor(values(reclassified_sst))
+
+```
+
+```{r}
+map1 <- tm_shape(avg_sst_rast) +
+  tm_raster(col.legend = tm_legend(title = "SST"))+
+  tm_title(text = "original")
+
+
+map2 <- tm_shape(reclassified_sst) +
+  tm_raster(col.legend = tm_legend(title = "SST"))+
+  tm_title(text= "reclassified")
+
+tmap_arrange(map1, map2, nrow = 1) 
+```
+
+```{r}
+
+# reclassify SST and depth data into locations that are suitable for oysters
+# hint: set suitable values to 1 and unsuitable values to 0
+
+rcl_depth <- matrix(c(-Inf, 0, 0,
+                0, 70, 1,
+                70, Inf, 0),
+              ncol = 3, byrow = TRUE)
+
+reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
+
+values(reclassified_depth) <- as.factor(values(reclassified_depth))
+```
+
+```{r}
+
+map1 <- tm_shape(depth_resample) +
+  tm_raster(col.legend = tm_legend(title = "Depth"))+
+  tm_title(text = "original")
+
+
+map2 <- tm_shape(reclassified_depth) +
+  tm_raster(col.legend = tm_legend(title = "Depth"))+
+  tm_title(text= "reclassified")
+
+tmap_arrange(map1, map2, nrow = 1) 
+
+```
+
+
+```{r}
+sst_depth <- c(reclassified_sst, reclassified_depth)
+```
+
+```{r}
+
+suitable_eez <- (reclassified_depth)*(reclassified_sst)
+
+tm_shape(suitable_eez) +
+  tm_raster()
+
+```
+
+```{r}
+
+suitable_eez_fun <- function(sst, depth) {
+  sst * depth
+}
+
+eez_rast <- lapp(suitable_eez[[c(1,2)]], fun = suitable_eez_fun)
+```
+
