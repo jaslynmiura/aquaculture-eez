@@ -46,7 +46,7 @@ if(crs(avg_sst_rast) == crs(depth)) {
 } else{
   warning("Updating coordinate reference systems to match")
   # transform data to match
-  avg_sst_rast <- project(avg_sst_rast, depth)
+  depth <- project(depth, avg_sst_rast)
 }
 
 ```
@@ -114,8 +114,9 @@ rcl_temp <- matrix(c(-Inf, 11, 0,
 
 reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
 
-values(reclassified_sst) <- as.factor(values(reclassified_sst))
+reclassified_sst[is.na(reclassified_sst)] <- 0
 
+# values(reclassified_sst) <- as.factor(values(reclassified_sst))
 ```
 
 ```{r}
@@ -136,14 +137,16 @@ tmap_arrange(map1, map2, nrow = 1)
 # reclassify SST and depth data into locations that are suitable for oysters
 # hint: set suitable values to 1 and unsuitable values to 0
 
-rcl_depth <- matrix(c(-Inf, 0, 0,
-                0, 70, 1,
-                70, Inf, 0),
+rcl_depth <- matrix(c(-Inf, -70, 0,
+                -70, 0, 1,
+                0, Inf, 0),
               ncol = 3, byrow = TRUE)
 
 reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
 
-values(reclassified_depth) <- as.factor(values(reclassified_depth))
+reclassified_depth[is.na(reclassified_depth)] <- 0
+
+# values(reclassified_depth) <- as.factor(values(reclassified_depth))
 ```
 
 ```{r}
@@ -163,24 +166,43 @@ tmap_arrange(map1, map2, nrow = 1)
 
 
 ```{r}
-sst_depth <- c(reclassified_sst, reclassified_depth)
+# sst_depth <- c(reclassified_sst, reclassified_depth)
 ```
 
+
+# find locations that satisfy both SST and depth conditions
 ```{r}
 
 suitable_eez <- (reclassified_depth)*(reclassified_sst)
 
 tm_shape(suitable_eez) +
-  tm_raster()
+  tm_raster(style = "cat")
 
 ```
 
 ```{r}
 
-suitable_eez_fun <- function(sst, depth) {
-  sst * depth
+suitable_eez_mask <- mask(suitable_eez, west_coast)
+
+if(crs(suitable_eez) == crs(west_coast)) {
+  print("Coordinate reference systems match")
+} else{
+  warning("Updating coordinate reference systems to match")
+  # transform data to match
+  west_coast <- st_transform(west_coast, crs = st_crs(suitable_eez))
 }
 
-eez_rast <- lapp(suitable_eez[[c(1,2)]], fun = suitable_eez_fun)
+# mask raster based on vector object
+# (cells inside of vector are converted to NA)
+# suitable_eez_inv_masked <- mask(suitable_eez, west_coast, inverse = TRUE)
+
+tm_shape(suitable_eez_mask) +
+  tm_raster()
+
+```
+```{r}
+
+suitable_eez_mask_extract <- terra::extract(suitable_eez, west_coast, fun = "sum")
+
 ```
 
