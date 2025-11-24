@@ -196,13 +196,101 @@ if(crs(suitable_eez) == crs(west_coast)) {
 # (cells inside of vector are converted to NA)
 # suitable_eez_inv_masked <- mask(suitable_eez, west_coast, inverse = TRUE)
 
-tm_shape(suitable_eez_mask) +
+suitable_eez_map <- tm_shape(suitable_eez_mask) +
   tm_raster()
+  
+west_coast_map <- tm_shape(west_coast) +
+  tm_polygons(fill = NA)
 
+tmap_arrange(suitable_eez_map, west_coast_map, nrow =1)
 ```
 ```{r}
 
-suitable_eez_mask_extract <- terra::extract(suitable_eez, west_coast, fun = "sum")
+west_coast_vect <- vect(west_coast)
+
+# select suitable cells within West Coast EEZs
+region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum")
+
+# find area of grid cells
+grid_cell_km <- cellSize(suitable_eez_mask, unit = "km")
+
+suitable_area_rast <- suitable_eez_mask * grid_cell_km
+
+region_area <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE)
+
+region_area
+
+```
+
+```{r}
+eez_raster <- rasterize(west_coast, suitable_eez_mask, field = "rgn_id")
+
+tm_shape(suitable_eez_mask) +
+  tm_raster(palette = c("lightblue", "maroon"),  # color for 0 and 1
+    style = "cat",                          # categorical, not continuous
+    breaks = c(-0.5, 0.5, 1.5),             # force discrete bins
+    labels = c("Unsuitable", "Suitable"),
+    title = "Habitat Suitability") + 
+  tm_shape(west_coast) +
+  tm_polygons(alpha = 0) +
+  tm_title(text = species)
+  
+```
+```{r}
+
+suitable_eez_fun <- function(min_temp, max_temp, min_depth, max_depth) {
+  
+rcl_temp <- matrix(c(-Inf, min_temp, 0,
+                min_temp, max_temp, 1,
+                max_temp, Inf, 0),
+              ncol = 3, byrow = TRUE)
+
+reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
+
+reclassified_sst[is.na(reclassified_sst)] <- 0
+
+rcl_depth <- matrix(c(-Inf, -min_depth, 0,
+                -min_depth, max_depth, 1,
+                max_depth, Inf, 0),
+              ncol = 3, byrow = TRUE)
+
+reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
+
+reclassified_depth[is.na(reclassified_depth)] <- 0
+
+suitable_eez <- (reclassified_depth)*(reclassified_sst)
+
+suitable_eez_mask <- mask(suitable_eez, west_coast)
+
+west_coast_vect <- vect(west_coast)
+
+# select suitable cells within West Coast EEZs
+region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum")
+
+# find area of grid cells
+grid_cell_km <- cellSize(suitable_eez_mask, unit = "km")
+
+suitable_area_rast <- suitable_eez_mask * grid_cell_km
+
+region_area <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE)
+
+map1 <- tm_shape(suitable_eez_mask) +
+  tm_raster(palette = c("lightblue", "maroon"),  # color for 0 and 1
+    style = "cat",                          # categorical, not continuous
+    breaks = c(-0.5, 0.5, 1.5),             # force discrete bins
+    labels = c("Unsuitable", "Suitable"),
+    title = "Habitat Suitability") + 
+  tm_shape(west_coast) +
+  tm_polygons(alpha = 0,
+              lwd = 0.5)
+
+print(region_area)
+print(map1)
+
+}
+
+# this is the suitable eez for red abalone, need to incoorporate species as an arguement in the function!
+suitable_eez_fun(8, 18, 24, 0)
 
 ```
 
