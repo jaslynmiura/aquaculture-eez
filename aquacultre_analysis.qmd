@@ -1,46 +1,55 @@
 ---
-title: "Aquaculture"
+title: "Marine Aquaculture in Exclusive Economic Zones"
 author: "Jaslyn Miura"
 format: html
+date: November 27, 2025
+message: false
 ---
 
-Asian Tiger Shrimp
-
-Environment: milieu / climate zone / depth range / distribution range
-Benthic; brackish; depth range 0 - 72 m (Ref. 8).  Subtropical, preferred 26°C (Ref. 107945); 35°N - 20°S (Ref. 356)
-
-```{r}
+```{r, output = FALSE}
 library(tidyverse)
 library(terra)
 library(sf)
 library(tmap)
+library(paletteer)
+library(maptiles) 
+library(testthat)
+library(kableExtra) 
+library(knitr)
 ```
 
-
-```{r}
-west_coast <- st_read(here::here('data', 'wc_regions_clean.shp'))
-depth <- rast(here::here('data', 'depth.tif'))
-
+### Processing Data
+```{r, output = FALSE}
+# Load in Sea Surface Temperature raster.
 sst_08 <- rast(here::here('data', 'average_annual_sst_2008.tif'))
 sst_09 <- rast(here::here('data', 'average_annual_sst_2009.tif'))
 sst_10 <- rast(here::here('data', 'average_annual_sst_2010.tif'))
 sst_11 <- rast(here::here('data', 'average_annual_sst_2011.tif'))
 sst_12 <- rast(here::here('data', 'average_annual_sst_2012.tif'))
+```
 
+```{r, output = FALSE}
+# Stacking the 2008, 2009, 2010, 2011, and 2012 rasters.
 sst <- c(sst_08, sst_09, sst_10, sst_11, sst_12)
 ```
+
 ```{r}
-# find the mean SST from 2008-2012 (e.g. create single raster of average SST)
-avg_sst_rast <-mean(sst)
+# Find the average SST of the stacked layers.
+avg_sst_rast <- mean(sst)
 ```
 
 ```{r}
-# convert average SST from Kelvin to Celsius, hint: subtract by 273.15
+# Convert the average SST from Kelvin to Celsius, by subtracting 273.15
 avg_sst_rast <- avg_sst_rast - 273.15
 ```
 
 ```{r}
-# check if coordinate reference systems match
+# Loading the depth raster.
+depth <- rast(here::here('data', 'depth.tif'))
+```
+
+```{r}
+# Check if coordinate reference systems match.
 if(crs(avg_sst_rast) == crs(depth)) {
   print("Coordinate reference systems match")
 } else{
@@ -48,43 +57,30 @@ if(crs(avg_sst_rast) == crs(depth)) {
   # transform data to match
   depth <- project(depth, avg_sst_rast)
 }
-
 ```
 
-
 ```{r}
-# crop depth raster to match the extent of the SST raster
+# Cropping the depth raster to match the extent of the SST raster.
 depth_crop <- terra::crop(depth, avg_sst_rast)
 ```
 
 ```{r}
-#the resolutions of the SST and depth data do not match
-# resample the depth data to match the resolution of the SST data using the nearest neighbor approach
-
+# Resampling the depth raster to match the resolution of the SST raster using the nearest neighbor approach
 depth_resample <- resample(depth_crop, y = avg_sst_rast, method = "near")
-
 ```
 
 ```{r}
-# BEFORE AND AFTER MAPS LOOK THE SAME BUT RUN A CHECK TO MAKE SURE THE RESOLUTIONS ARE THE SAME.
-# map1 <- tm_shape(depth_crop) +
-#   tm_raster()
-# 
-# map2 <- tm_shape(depth_resample) +
-#   tm_raster()
-# 
-# tmap_arrange(map1, map2, nrow = 1)
+# Using a unit test, after resampling we expect depth_resample to have a resolution = 1.
+expect_equal(resolution(depth_resample), 1)
 ```
 
 ```{r}
-# check that the depth and SST match in resolution, extent, and coordinate reference system
-# hint: can the rasters be stacked?
-
+# Check that the depth_resample and avg_sst_rast match in resolution, extent, and crs.
 if(crs(avg_sst_rast) == crs(depth_resample)) {
-  print("Coordinate reference systems match")
+  print("Coordinate reference systems match!")
 } else{
   warning("Updating coordinate reference systems to match")
-  # transform data to match
+  # Transform data to match
   avg_sst_rast <- project(avg_sst_rast, depth_resample)
 }
 
@@ -101,12 +97,9 @@ if(ext(avg_sst_rast) == ext(depth_resample)) {
 }
 ```
 
-
-## Find Suitable Locations
+### Finding Suitable Locations
 ```{r}
-# reclassify SST and depth data into locations that are suitable for oysters
-# hint: set suitable values to 1 and unsuitable values to 0
-
+# Reclassify avg_sst_rast into locations that are suitable for oysters.
 rcl_temp <- matrix(c(-Inf, 11, 0,
                 11, 30, 1,
                 30, Inf, 0),
@@ -115,28 +108,10 @@ rcl_temp <- matrix(c(-Inf, 11, 0,
 reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
 
 reclassified_sst[is.na(reclassified_sst)] <- 0
-
-# values(reclassified_sst) <- as.factor(values(reclassified_sst))
 ```
 
 ```{r}
-map1 <- tm_shape(avg_sst_rast) +
-  tm_raster(col.legend = tm_legend(title = "SST"))+
-  tm_title(text = "original")
-
-
-map2 <- tm_shape(reclassified_sst) +
-  tm_raster(col.legend = tm_legend(title = "SST"))+
-  tm_title(text= "reclassified")
-
-tmap_arrange(map1, map2, nrow = 1) 
-```
-
-```{r}
-
-# reclassify SST and depth data into locations that are suitable for oysters
-# hint: set suitable values to 1 and unsuitable values to 0
-
+# Reclassify depth into locations that are suitable for oysters.
 rcl_depth <- matrix(c(-Inf, -70, 0,
                 -70, 0, 1,
                 0, Inf, 0),
@@ -145,45 +120,18 @@ rcl_depth <- matrix(c(-Inf, -70, 0,
 reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
 
 reclassified_depth[is.na(reclassified_depth)] <- 0
-
-# values(reclassified_depth) <- as.factor(values(reclassified_depth))
 ```
 
 ```{r}
-
-map1 <- tm_shape(depth_resample) +
-  tm_raster(col.legend = tm_legend(title = "Depth"))+
-  tm_title(text = "original")
-
-
-map2 <- tm_shape(reclassified_depth) +
-  tm_raster(col.legend = tm_legend(title = "Depth"))+
-  tm_title(text= "reclassified")
-
-tmap_arrange(map1, map2, nrow = 1) 
-
-```
-
-
-```{r}
-# sst_depth <- c(reclassified_sst, reclassified_depth)
-```
-
-
-# find locations that satisfy both SST and depth conditions
-```{r}
-
+# Multiply depth and temperature rasters to find suitable areas for both conditions.
 suitable_eez <- (reclassified_depth)*(reclassified_sst)
-
-tm_shape(suitable_eez) +
-  tm_raster(style = "cat")
-
 ```
 
-```{r}
+```{r, output = FALSE}
+# Loading boundaries using west coast Exclusive Economic Zones.
+west_coast <- st_read(here::here('data', 'wc_regions_clean.shp'))
 
-suitable_eez_mask <- mask(suitable_eez, west_coast)
-
+# Check if the coordinate systems match.
 if(crs(suitable_eez) == crs(west_coast)) {
   print("Coordinate reference systems match")
 } else{
@@ -191,106 +139,145 @@ if(crs(suitable_eez) == crs(west_coast)) {
   # transform data to match
   west_coast <- st_transform(west_coast, crs = st_crs(suitable_eez))
 }
-
-# mask raster based on vector object
-# (cells inside of vector are converted to NA)
-# suitable_eez_inv_masked <- mask(suitable_eez, west_coast, inverse = TRUE)
-
-suitable_eez_map <- tm_shape(suitable_eez_mask) +
-  tm_raster()
-  
-west_coast_map <- tm_shape(west_coast) +
-  tm_polygons(fill = NA)
-
-tmap_arrange(suitable_eez_map, west_coast_map, nrow =1)
-```
-```{r}
-
-west_coast_vect <- vect(west_coast)
-
-# select suitable cells within West Coast EEZs
-region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum")
-
-# find area of grid cells
-grid_cell_km <- cellSize(suitable_eez_mask, unit = "km")
-
-suitable_area_rast <- suitable_eez_mask * grid_cell_km
-
-region_area <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE)
-
-region_area
-
 ```
 
+### Determine the most suitable EEZ.
 ```{r}
-eez_raster <- rasterize(west_coast, suitable_eez_mask, field = "rgn_id")
-
-tm_shape(suitable_eez_mask) +
-  tm_raster(palette = c("lightblue", "maroon"),  # color for 0 and 1
-    style = "cat",                          # categorical, not continuous
-    breaks = c(-0.5, 0.5, 1.5),             # force discrete bins
-    labels = c("Unsuitable", "Suitable"),
-    title = "Habitat Suitability") + 
-  tm_shape(west_coast) +
-  tm_polygons(alpha = 0) +
-  tm_title(text = species)
-  
-```
-```{r}
-
-suitable_eez_fun <- function(min_temp, max_temp, min_depth, max_depth) {
-  
-rcl_temp <- matrix(c(-Inf, min_temp, 0,
-                min_temp, max_temp, 1,
-                max_temp, Inf, 0),
-              ncol = 3, byrow = TRUE)
-
-reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
-
-reclassified_sst[is.na(reclassified_sst)] <- 0
-
-rcl_depth <- matrix(c(-Inf, -min_depth, 0,
-                -min_depth, max_depth, 1,
-                max_depth, Inf, 0),
-              ncol = 3, byrow = TRUE)
-
-reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
-
-reclassified_depth[is.na(reclassified_depth)] <- 0
-
-suitable_eez <- (reclassified_depth)*(reclassified_sst)
-
+# Masking the suitable_eez raster to the west_coast regions.
 suitable_eez_mask <- mask(suitable_eez, west_coast)
+```
 
+```{r}
+# Vectoirize west_coast boundary.
 west_coast_vect <- vect(west_coast)
 
-# select suitable cells within West Coast EEZs
-region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum")
+# Select the number suitable cells within west coast EEZs.
+region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum") %>% 
+  rename(suitable_cell_count = depth)
 
-# find area of grid cells
+# Use cellSize to change the units to kilometers.
 grid_cell_km <- cellSize(suitable_eez_mask, unit = "km")
 
+# Convert cells of mask raster into km^2.
 suitable_area_rast <- suitable_eez_mask * grid_cell_km
 
-region_area <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE)
+# Calculate the area of suitable cells within west coast EEZ.
+region_area <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE) %>% 
+  rename(suitable_area_oysters = depth)
 
-map1 <- tm_shape(suitable_eez_mask) +
-  tm_raster(palette = c("lightblue", "maroon"),  # color for 0 and 1
-    style = "cat",                          # categorical, not continuous
-    breaks = c(-0.5, 0.5, 1.5),             # force discrete bins
-    labels = c("Unsuitable", "Suitable"),
-    title = "Habitat Suitability") + 
-  tm_shape(west_coast) +
-  tm_polygons(alpha = 0,
-              lwd = 0.5)
+# Creating bins for suitable area.
+region_area$suitable_area_bin_oysters <- cut(
+  region_area$suitable_area_oysters,
+  breaks = c(0, 1000, 2000, 3000, 4000),
+  include.lowest = TRUE,
+  right = FALSE,
+  labels = c("0–1000", "1000–2000", "2000–3000", "3000–4000"))
 
-print(region_area)
-print(map1)
+# Joining the suitable region area to the west_coast boundary dataframe.
+west_coast <- west_coast %>%
+  left_join(region_area, by = c("rgn_id" = "ID")) 
+```
 
+```{r}
+# Creating a table of suitable area in each region.
+suitable_df <- west_coast %>% 
+  select("rgn", "suitable_area_oysters") %>% 
+  st_drop_geometry() %>% 
+  kable(col.names = c("Region", "Suitable Area (km^2)"),
+        caption = "Table 1: Suitable Area (km^2) for Oysters") %>% 
+  kable_styling(bootstrap_options = "hover",
+                position = "center") 
+suitable_df
+```
+
+```{r}
+# Create a map of the suitable area within each Exclusive Economic Zone.
+tm_graticules() +
+tm_basemap("OpenStreetMap") +
+tm_shape(west_coast) +
+  tm_polygons(fill = "suitable_area_bin_oysters",
+              fill.scale = tm_scale(values = "brewer.pu_rd"),
+              fill.legend = tm_legend(expression("Area km"^{2}))) +
+  tm_title(text = "Suitable Area of Oysters")
+
+```
+
+### Generalized workflow 
+```{r}
+# Create a function to find suitable area for any species.
+suitable_eez_fun <- function(min_temp, max_temp, min_depth, max_depth, species_name) {
+  
+  # Reclassify avg_sst_rast into locations that are suitable for selected species.
+  rcl_temp <- matrix(c(-Inf, min_temp, 0,
+                       min_temp, max_temp, 1,
+                       max_temp, Inf, 0),
+                     ncol = 3, byrow = TRUE)
+  
+  reclassified_sst <- classify(avg_sst_rast, rcl = rcl_temp)
+  
+  reclassified_sst[is.na(reclassified_sst)] <- 0
+  
+  # Reclassify depth raster into locations that are suitable for selected species.
+  rcl_depth <- matrix(c(-Inf, -(min_depth), 0,
+                        -(min_depth), max_depth, 1,
+                        max_depth, Inf, 0),
+                      ncol = 3, byrow = TRUE)
+  
+  reclassified_depth <- classify(depth_resample, rcl = rcl_depth)
+  
+  reclassified_depth[is.na(reclassified_depth)] <- 0
+  
+  # Multiply depth and temperature rasters to find suitable areas for both conditions.
+  suitable_eez <- (reclassified_depth)*(reclassified_sst)
+  
+  # Masking the suitable_eez raster to the west_coast regions.
+  suitable_eez_mask <- mask(suitable_eez, west_coast)
+  
+  # Select the number suitable cells within west coast EEZs.
+  region_count <- terra::extract(suitable_eez_mask, west_coast_vect, fun = "sum")
+  
+  # Use cellSize to change the units to kilometers.
+  grid_cell_km <- cellSize(suitable_eez_mask, unit = "km")
+  
+  # Convert cells of mask raster into km^2.
+  suitable_area_rast <- suitable_eez_mask * grid_cell_km
+  
+  # Calculate the area of suitable cells within west coast EEZ.
+  region_area_species <- terra::extract(suitable_area_rast, west_coast_vect, fun = sum, na.rm = TRUE) %>%
+    rename(suitable_area_select_species = depth)
+  
+  # Creating bins for suitable area.
+  region_area_species$suitable_area_bin_select_species <- cut(
+    region_area_species$suitable_area_select_species,
+    breaks = c(0, 1000, 2000, 3000, 4000),
+    include.lowest = TRUE,
+    right = FALSE,
+    labels = c("0–1000", "1000–2000", "2000–3000", "3000–4000"))
+  
+  # Joining the suitable region area to the west_coast boundary dataframe.
+  west_coast_species <- west_coast %>%
+    left_join(region_area_species, by = c("rgn_id" = "ID"))
+  
+  # Create a map of the suitable area within each Exclusive Economic Zone.
+   species_map <- tm_graticules() +
+     tm_basemap("OpenStreetMap") +
+     tm_shape(west_coast_species) +
+     tm_polygons(fill = "suitable_area_bin_select_species",
+                 fill.scale = tm_scale(values = "brewer.reds"),
+                 fill.legend = tm_legend(expression("Area km"^{2}))) +
+     tm_title(text = paste("Suitable EEZ for", str_to_sentence(species_name))) +
+     tmap_options(component.autoscale = FALSE)
+
+  print(species_map)
+  
 }
 
-# this is the suitable eez for red abalone, need to incoorporate species as an arguement in the function!
-suitable_eez_fun(8, 18, 24, 0)
+# Use the function to create a map for Red Abalone.
+suitable_eez_fun(min_temp = 8,
+                 max_temp = 18,
+                 min_depth = 24,
+                 max_depth = 0,
+                 species_name = "Red Abalone")
 
 ```
 
