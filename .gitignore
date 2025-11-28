@@ -50,3 +50,6 @@ rsconnect/
 
 # Ignoring the data file
 data/
+
+# Ignoring the aquaculture files
+aquaculture_analysis_files
